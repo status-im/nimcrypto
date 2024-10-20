@@ -14,30 +14,6 @@
 ## decent library "Constant-Time Toolkit" (https://github.com/pornin/CTTK)
 ## Copyright (c) 2018 Thomas Pornin <pornin@bolet.org>
 
-import std/macros
-
-proc replaceNodes(node: NimNode, what: NimNode, by: NimNode): NimNode =
-  # Replace "what" ident node by "by"
-  if node.kind in {nnkIdent, nnkSym}:
-    if node.eqIdent(what): by else: node
-  elif node.len == 0:
-    node
-  else:
-    let rTree = node.kind.newTree()
-    for child in node:
-      rTree.add replaceNodes(child, what, by)
-    rTree
-
-macro unroll(idx: untyped{nkIdent}, start, stopEx: static int, body: untyped): untyped =
-  ## unroll idx over the range [start, stopEx), repeating the body for each
-  ## iteration
-  result = newStmtList()
-  for i in start ..< stopEx:
-    # block unrolledIter_{idx}{i}: body
-    result.add nnkBlockStmt.newTree(
-      ident("unrolledIter_" & $idx & $i), body.replaceNodes(idx, newLit i)
-    )
-
 type
   HexFlags* {.pure.} = enum
     LowerCase,  ## Produce lowercase hexadecimal characters
@@ -402,24 +378,23 @@ template copyMem*[A, B](dst: var openArray[A], dsto: int,
 template offset(p: pointer, n: Natural | uint): pointer =
   cast[pointer](cast[uint](p) + uint n)
 
+func unrollEqualMem(a, b: pointer, limbs: static Natural, Limb: type SomeUnsignedInt): Limb =
+  when limbs > 1:
+    var aa {.noinit.}, bb {.noinit.}: Limb
+    copyMem(addr aa, a, sizeof(Limb))
+    copyMem(addr bb, b, sizeof(Limb))
+    (aa xor bb) or unrollEqualMem(a.offset(sizeof(Limb)), b.offset(sizeof(Limb)), limbs - 1, Limb)
+  else:
+    var aa {.noinit.}, bb {.noinit.}: Limb
+    copyMem(addr aa, a, sizeof(Limb))
+    copyMem(addr bb, b, sizeof(Limb))
+    (aa xor bb)
+
 template equalMemFull(
     aParam, bParam: pointer, limbs: static Natural, Limb: type SomeUnsignedInt
 ): bool =
   # Length known at runtime (and assumed to be small!) - unroll the loop
-  var
-    res = Limb(0)
-    aa {.noinit.}, bb {.noinit.}: Limb
-
-  let
-    a = aParam
-    b = bParam
-
-  unroll i, 0, limbs:
-    copyMem(addr aa, a.offset((limbs - i - 1) * sizeof(Limb)), sizeof(Limb))
-    copyMem(addr bb, b.offset((limbs - i - 1) * sizeof(Limb)), sizeof(Limb))
-    res = res or (aa xor bb)
-
-  res == 0
+  unrollEqualMem(aParam, bParam, limbs, Limb) == 0
 
 template equalMemFull(
     aParam, bParam: pointer, limbsParam: Natural, Limb: type SomeUnsignedInt
