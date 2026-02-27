@@ -53,11 +53,15 @@ when defined(posix) or defined(emscripten):
     discard posix.close(fd)
     res
 
+# NOTE: critical for emscripten flag to be processed before linux
+# because current workarounds for building wasm in Nim include
+# defining the OS as linux
 when defined(emscripten) or defined(openbsd):
   # Uses getentropy() provided by emscripten (browser and node)
   # with /dev/urandom as fallback. getentropy() is limited to 256
   # bytes per call per POSIX spec, so we loop in chunks.
   # https://github.com/emscripten-core/emscripten/pull/12240
+  # openbsd provides getentropy by default
   proc getentropy(pbytes: pointer, nbytes: csize_t): cint
        {.importc: "getentropy", header: "<unistd.h>".}
 
