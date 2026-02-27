@@ -27,7 +27,7 @@
 {.deadCodeElim:on.}
 {.push raises: [].}
 
-when defined(posix):
+when defined(posix) or defined(emscripten):
   import os, posix
 
   proc urandomRead(pbytes: pointer, nbytes: int): int =
@@ -53,32 +53,34 @@ when defined(posix):
     discard posix.close(fd)
     res
 
-when defined(openbsd):
-
-  proc getentropy(pbytes: pointer, nbytes: int): cint
+when defined(emscripten) or defined(openbsd):
+  # Uses getentropy() provided by emscripten (browser and node)
+  # with /dev/urandom as fallback. getentropy() is limited to 256
+  # bytes per call per POSIX spec, so we loop in chunks.
+  # https://github.com/emscripten-core/emscripten/pull/12240
+  proc getentropy(pbytes: pointer, nbytes: csize_t): cint
        {.importc: "getentropy", header: "<unistd.h>".}
 
   proc randomBytes*(pbytes: pointer, nbytes: int): int =
-    var p: pointer
+    const maxChunk = 256
     var res = 0
     while res < nbytes:
-      p = cast[pointer](cast[uint](pbytes) + uint(res))
-      let bytesRead = getentropy(p, nbytes - res)
-      if bytesRead > 0:
-        res += bytesRead
-      elif bytesRead == 0:
-        break
+      # NOTE: pointer arithmetic - appends by incrementing the pbytes pointer
+      let p = cast[pointer](cast[uint](pbytes) + uint(res))
+      let chunkSize = min(nbytes - res, maxChunk)
+      if getentropy(p, csize_t(chunkSize)) == 0:
+        res += chunkSize
       else:
-        if osLastError() != OSErrorCode(EINTR):
-          break
+        # interrupted, so retry
+        if osLastError() == OSErrorCode(EINTR):
+          continue
 
-    if res <= 0:
-      res = urandomRead(pbytes, nbytes)
-    elif res < nbytes:
-      p = cast[pointer](cast[uint](pbytes) + uint(res))
-      let bytesRead = urandomRead(p, nbytes - res)
-      if bytesRead != -1:
-        res += bytesRead
+        # getentropy failed so fall back to /dev/urandom
+        let p2 = cast[pointer](cast[uint](pbytes) + uint(res))
+        let remaining = urandomRead(p2, nbytes - res)
+        if remaining == nbytes - res:
+          res = nbytes
+        break
     res
 
 elif defined(linux):
