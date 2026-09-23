@@ -17,7 +17,7 @@
 {.push raises: [].}
 
 when (NimMajor, NimMinor, NimPatch) < (2, 2, 8):
-  {.error: "Nim 2.2.8 required for sha2, see https://github.com/cheatfate/nimcrypto/issues/98".}
+  {.warning: "Nim 2.2.8 required for sha2, see https://github.com/cheatfate/nimcrypto/issues/98".}
 
 import ".."/[hash, utils, cpufeatures]
 import "."/[sha2_common, sha2_ref, sha2_avx, sha2_avx2, sha2_sha, sha2_neon]
